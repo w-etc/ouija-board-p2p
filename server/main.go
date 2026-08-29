@@ -313,6 +313,9 @@ func main() {
 	go hub.run()
 
 	http.HandleFunc("/", serveWS(hub))
+	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
 
 	log.Printf("[matchmaking] listening on :%s", port)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {

@@ -1,0 +1,18 @@
+# Render Blueprint for the matchmaking/signaling server.
+#
+# Deploy: sign up at render.com (free, no card, "Continue with GitHub" works),
+# then New > Blueprint, point it at this repo, and click Apply. Render reads
+# this file and creates the service below with no further configuration.
+#
+# The free plan spins the service down after 15 minutes idle; the next
+# connection wakes it back up in ~1 minute. Fine for development — for a
+# live demo, hit the URL a few minutes beforehand to warm it up.
+services:
+  - type: web
+    name: ouija-matchmaking
+    runtime: go
+    plan: free
+    rootDir: server
+    buildCommand: go build -o bin/server .
+    startCommand: ./bin/server
+    healthCheckPath: /healthz

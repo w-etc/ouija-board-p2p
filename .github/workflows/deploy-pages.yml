@@ -1,0 +1,55 @@
+name: Deploy client to GitHub Pages
+
+on:
+  push:
+    branches: [claude/p2p-ouija-matchmaking-olrj29]
+    paths:
+      - "client/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/deploy-pages.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - run: npm run build -w client
+        env:
+          # Set once the matchmaking server is deployed (e.g. to Render) —
+          # configure this as a repository variable at Settings > Secrets and
+          # variables > Actions > Variables. Falls back to localhost so a
+          # missing variable fails obviously in the deployed client rather
+          # than silently pointing nowhere.
+          VITE_MATCHMAKING_URL: ${{ vars.VITE_MATCHMAKING_URL || 'ws://localhost:8080' }}
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: client/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

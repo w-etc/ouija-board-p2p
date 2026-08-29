@@ -179,25 +179,42 @@ visually obvious when traffic stops touching the server.
       Same crowding a real paper board has at the ends of its letter rows.
 - [ ] Visual polish on the board (currently a functional but plain arc
       layout of letters/numbers/yes/no/goodbye).
-- [ ] Deploy the matchmaking server somewhere cheap. Shortlist given to
-      the user (2026-08-29), no pick made yet:
-      - Fly.io / a cheap VPS (Hetzner/DigitalOcean, ~$4-5/mo) — best fit
-        for "it's a single Go binary", no cold starts, good live-demo
-        reliability. A VPS can also serve the built client via
-        Caddy/nginx alongside the Go binary — "one cheap box does
-        everything" is a strong single-slide story.
-      - Render free tier / Railway — easiest to stand up, but Render's
-        free tier cold-starts on idle, which is a real risk for a live
-        demo (pre-warm it, or pay for the smallest paid tier instead).
-      - Cloud Run — scales to zero, pay-per-use, supports WebSockets;
-        reasonable "still cheap, but cloud-native" data point.
-      - Cloudflare Workers/Durable Objects — near-zero idle cost, but
-        would mean rewriting the server in JS, not Go; only worth it as
-        an explicit "here's the serverless extreme" comparison, not as
-        the thing we actually build.
-- [ ] Deploy the client as a static site (Vercel/Netlify/Cloudflare
-      Pages/GitHub Pages — trivial, it's just static files + a WS URL env
-      var).
+- [ ] Deploy the matchmaking server (config done, awaiting user action —
+      see below). Decision (2026-08-30): **Render free
+      Web Service**, picked specifically because the user wants a no-card
+      deploy path. Re-researched the shortlist at that point since these
+      policies drift — Fly.io removed its card-free tier entirely in 2024
+      (new signups now require a card), so it dropped off the list. Config
+      is done: `render.yaml` blueprint at repo root (`runtime: go`,
+      `rootDir: server`, `healthCheckPath: /healthz` — added a dedicated
+      `/healthz` endpoint to `main.go` since the existing `/` handler
+      correctly 400s any non-WebSocket request, which would otherwise look
+      unhealthy to Render's default checker). **Remaining, needs the
+      user**: sign up at render.com (free, no card, GitHub OAuth), New →
+      Blueprint → this repo → Apply, then set the resulting `wss://` URL
+      as the `VITE_MATCHMAKING_URL` repo variable (Settings → Secrets and
+      variables → Actions) so the Pages build picks it up. Free plan
+      cold-starts after 15 min idle (~1 min to wake) — pre-warm before the
+      live demo. If cold-start risk ever becomes a dealbreaker, a cheap
+      VPS/Fly.io (now card-required) remain the no-cold-start fallback,
+      and Cloudflare Workers/Durable Objects is genuinely card-free with
+      no cold starts too, but means rewriting the server in JS — not
+      pursued since Go is the point (see toolchain decision above).
+- [ ] Deploy the client (config done, awaiting user action — see below).
+      Decision (2026-08-30): **GitHub Pages**, since it
+      needs no external account at all (same repo/GitHub identity we
+      already push to) — the clear winner for "handle it without a card."
+      Config is done: `.github/workflows/deploy-pages.yml` builds on every
+      push to `claude/p2p-ouija-matchmaking-olrj29` and deploys via
+      `actions/deploy-pages`; `vite.config.ts` sets `base:
+      "/ouija-board-p2p/"` for production builds only (GitHub Pages
+      project sites are served under that subpath; local `npm run dev`
+      is unaffected — verified both the built asset paths and that dev
+      still serves at `/`). **Remaining, needs the user**: one manual,
+      one-time toggle at repo Settings → Pages → Source: GitHub Actions
+      (no API for this in the GitHub MCP tools available this session).
+      Once that's flipped and the Render URL is set as described above,
+      the site is live at `https://w-etc.github.io/ouija-board-p2p/`.
 - [ ] **Cost-at-scale estimates for the talk (requested 2026-08-29, not
       started)**: the talk needs concrete $ figures for running the
       matchmaking server at different scales — user gave 100 ouija boards
