@@ -35,6 +35,11 @@ To point the client at a different matchmaking server (e.g. a deployed
 one), copy `client/.env.example` to `client/.env.local` and set
 `VITE_MATCHMAKING_URL`.
 
+**Use Chrome/Chromium, not Firefox.** Firefox's WebRTC ICE handshake
+reliably fails here — even between two tabs on the same machine — almost
+certainly due to its mDNS host-candidate obfuscation. See "Known issues /
+gotchas" in `CLAUDE.md` for the full diagnosis.
+
 ## Scripts
 
 - `npm run dev` — run server + client together.

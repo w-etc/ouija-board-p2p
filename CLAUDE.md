@@ -110,6 +110,40 @@ visually obvious when traffic stops touching the server.
       style.css
 ```
 
+## Known issues / gotchas
+
+- **Firefox fails the WebRTC handshake, even two tabs on one machine**
+  (2026-08-29). Symptom: `net.ts`'s connection-state logging shows
+  `iceConnectionState: failed` and Firefox prints "ICE failed, add a TURN
+  server and see about:webrtc for more details" — even for a same-machine
+  loopback connection that needs no NAT traversal at all. Confirmed via
+  live test: same code, same machine, Chrome connects fine, Firefox does
+  not. Root cause is almost certainly Firefox's mDNS host-candidate
+  obfuscation (it hides real local IPs behind a random `<uuid>.local`
+  hostname in ICE candidates; if the OS can't resolve `.local` mDNS names,
+  even localhost fails) rather than anything in our signaling/WebRTC code
+  — the offer/answer/tap/chat protocol is verified correct by automated
+  same-origin Chromium tests. Diagnosing this took a few rounds because
+  the symptom (no messages arriving in either direction) looked identical
+  to "connected but silently dropping messages," which turned out to be a
+  real separate gap we fixed along the way: `net.ts`'s `send()` used to
+  drop outbound messages with no feedback whenever the channel wasn't
+  open, and connection failures weren't surfaced to the UI at all — both
+  now logged/shown, which is how the Firefox ICE failure became visible
+  in the first place instead of just "nothing happens."
+  - **Decision: use Chrome/Chromium for the live demo.** The presenter
+    controls the browser on stage, so this is a "pick your browser"
+    problem rather than something the app needs to work around. Not
+    pursuing a Firefox-specific fix (e.g. instructing users to flip
+    `media.peerconnection.ice.obfuscate_host_addresses` in
+    `about:config`) since it's not something we can control for an
+    audience member following along on their own machine anyway, and
+    doesn't affect the demo itself.
+  - Worth an audience aside if it comes up: this is actually a fitting
+    real-world footnote for the STUN/TURN slide — "peer-to-peer" still
+    depends on the browser's own address-discovery mechanics working,
+    and different browsers implement that differently.
+
 ## Status
 
 - [x] Repo scaffolded (workspaces, server skeleton, client skeleton).
