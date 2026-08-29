@@ -198,6 +198,32 @@ visually obvious when traffic stops touching the server.
 - [ ] Deploy the client as a static site (Vercel/Netlify/Cloudflare
       Pages/GitHub Pages — trivial, it's just static files + a WS URL env
       var).
+- [ ] **Cost-at-scale estimates for the talk (requested 2026-08-29, not
+      started)**: the talk needs concrete $ figures for running the
+      matchmaking server at different scales — user gave 100 ouija boards
+      (200 concurrent players), 1,000 boards, 10,000 boards as the
+      benchmark points (more orders of magnitude likely worth adding,
+      e.g. 100,000). This is the payoff of the whole "cheap matchmaking,
+      P2P gameplay" thesis, so it deserves real numbers, not hand-waving:
+      - Needs a per-connection resource model first: each player is one
+        persistent WebSocket held by the Go server for the ~duration of a
+        session (matchmaking wait + however long their board session
+        runs), plus the brief signaling relay traffic (a handful of
+        small JSON messages per room: offer/answer/ICE candidates) —
+        gameplay traffic (chat/taps) never touches the server, which is
+        exactly why this should stay cheap even at scale. Memory per
+        goroutine + WS connection is small (each `Player`/`Hub` state is
+        tiny); the real scaling questions are concurrent connection count
+        vs. a given host's connection/memory limits, and how session
+        duration affects concurrency at a given boards/hour rate.
+      - Should map those N-boards figures to concrete instance sizes on
+        the shortlisted platforms (Fly.io/VPS/Cloud Run/Render) and give
+        $/mo at each, plus calling out where a tier boundary gets crossed
+        (e.g. "free tier covers X, above that you need $Y/mo").
+      - Worth benchmarking the actual Go server (or at least reasoning
+        from gorilla/websocket's known overhead) rather than pulling
+        numbers out of the air, given this is the headline evidence for
+        the talk's argument.
 - [x] TURN server explanation given to the user (2026-08-29) — see the
       "No TURN server" decision above for the summary. Key points if this
       becomes a slide: STUN just helps peers discover their reachable
