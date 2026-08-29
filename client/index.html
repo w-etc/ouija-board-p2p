@@ -24,6 +24,13 @@
           <div id="letters"></div>
           <div id="planchette"></div>
         </div>
+        <div id="chat">
+          <div id="chat-log" aria-live="polite"></div>
+          <form id="chat-form" hidden>
+            <input id="chat-input" type="text" placeholder="Ask the spirits…" autocomplete="off" maxlength="200" />
+            <button type="submit">Ask</button>
+          </form>
+        </div>
       </section>
     </div>
     <script type="module" src="/src/main.ts"></script>

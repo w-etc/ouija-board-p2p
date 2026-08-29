@@ -18,8 +18,9 @@ again.
 To make that concrete, we're building a toy but real demo:
 
 1. **Ouija board web app** — two roles, "medium" and "ghost", share a board
-   in real time. One drags/moves the planchette, the other watches (and/or
-   both influence it at once — see Open Questions).
+   in real time. The medium asks questions over a text chat; the ghost
+   answers by tapping letters/symbols on the board, and the planchette
+   glides to each tapped spot and holds there before moving on.
 2. **P2P matchmaking server** — a small, cheap-to-host service whose only
    job is to pair a waiting medium with a waiting ghost and act as the
    WebRTC *signaling* relay (SDP offer/answer + ICE candidates) so the two
@@ -67,13 +68,25 @@ visually obvious when traffic stops touching the server.
   always makes the medium the WebRTC *initiator* (creates the SDP offer)
   purely because the handshake needs someone to go first; that tie-break
   stops mattering the instant the channel opens.
-- **Shared state model for the planchette**: both peers send their own
-  pointer target position over the data channel; the rendered planchette
-  position is the average of local + remote target, eased per frame. This
-  is deliberate — it demonstrates state that emerges from two peers
-  talking directly to each other, with *no server-side authority*, which
-  is a nice visual/talk beat ("nobody's arbitrating this, they're both
-  just... doing it").
+- **Interaction mechanic** (resolved — was open question #1): closer to
+  real ouija folklore than the original "both hands on the planchette"
+  prototype. Only the **medium** can write into a shared chat (asking
+  questions); only the **ghost** can tap letters/numbers/YES/NO/GOODBYE on
+  the board. Each tap is sent over the data channel as `{type: "tap",
+  symbol, x, y}`; chat messages go as `{type: "chat", text}`. Both are
+  peer-to-peer only, same as before — the matchmaking server never sees
+  gameplay traffic.
+- **Planchette rendering — replicated event queue, not averaged state**:
+  every tap (the ghost's own, and every one relayed from the peer) is
+  pushed through the same `Planchette.enqueue()`. The data channel
+  delivers messages in order, so both browsers replay an identical
+  sequence of taps independently and land on the same rendering without
+  either one telling the other what to draw — CSS transitions the
+  planchette to each tapped spot (~600ms) and holds it there (~1s) before
+  advancing to the next queued tap. This replaced the earlier "average of
+  both peers' live pointer position" model now that only one side (the
+  ghost) drives the planchette; it's still a good talk beat, just a
+  different P2P technique — event replication instead of state averaging.
 
 ## Repo layout
 
@@ -91,9 +104,9 @@ visually obvious when traffic stops touching the server.
     vite.config.ts
     index.html
     src/
-      main.ts          — app bootstrap, role selection, wiring
+      main.ts          — app bootstrap, role selection, chat + tap wiring
       net.ts            — WebSocket signaling client + WebRTC setup
-      board.ts          — ouija board layout/rendering + planchette physics
+      board.ts          — board layout/rendering + planchette tap queue
       style.css
 ```
 
@@ -103,32 +116,58 @@ visually obvious when traffic stops touching the server.
 - [x] Matchmaking/signaling server implemented (in-memory queue, no
       persistence — fine for a demo).
 - [x] Client: role picker, WebSocket join flow, WebRTC handshake, board
-      rendering with a draggable, peer-averaged planchette.
+      rendering.
+- [x] Interaction mechanic: medium-writes-chat / ghost-taps-board,
+      planchette glides + holds per tap (browser-tested with two
+      simulated clients — chat delivery, role-gated tappability, and the
+      hold-then-advance queue timing all verified).
 - [ ] Visual polish on the board (currently a functional but plain arc
       layout of letters/numbers/yes/no/goodbye).
-- [ ] Deploy the matchmaking server somewhere cheap (Fly.io / Render free
-      tier / a $5 VPS / Cloudflare Durable Objects are candidates — good
-      talk material either way since the point is "it's cheap").
-- [ ] Deploy the client as a static site (Vercel/Netlify/GitHub Pages —
-      trivial, it's just static files + a WS URL env var).
-- [ ] TURN server discussion for the slides (why we're *not* using one,
-      what it would cost if we did — this is a great "here's the tradeoff"
-      slide).
+- [ ] Deploy the matchmaking server somewhere cheap. Shortlist given to
+      the user (2026-08-29), no pick made yet:
+      - Fly.io / a cheap VPS (Hetzner/DigitalOcean, ~$4-5/mo) — best fit
+        for "it's a single Go binary", no cold starts, good live-demo
+        reliability. A VPS can also serve the built client via
+        Caddy/nginx alongside the Go binary — "one cheap box does
+        everything" is a strong single-slide story.
+      - Render free tier / Railway — easiest to stand up, but Render's
+        free tier cold-starts on idle, which is a real risk for a live
+        demo (pre-warm it, or pay for the smallest paid tier instead).
+      - Cloud Run — scales to zero, pay-per-use, supports WebSockets;
+        reasonable "still cheap, but cloud-native" data point.
+      - Cloudflare Workers/Durable Objects — near-zero idle cost, but
+        would mean rewriting the server in JS, not Go; only worth it as
+        an explicit "here's the serverless extreme" comparison, not as
+        the thing we actually build.
+- [ ] Deploy the client as a static site (Vercel/Netlify/Cloudflare
+      Pages/GitHub Pages — trivial, it's just static files + a WS URL env
+      var).
+- [x] TURN server explanation given to the user (2026-08-29) — see the
+      "No TURN server" decision above for the summary. Key points if this
+      becomes a slide: STUN just helps peers discover their reachable
+      address (cheap, what we use); TURN is a fallback *relay* for
+      NATs/firewalls hostile to hole-punching (symmetric NAT, some
+      corporate/hotel/conference networks) and it carries full traffic
+      bandwidth like a real server would, which is exactly the cost the
+      talk argues against. Hosted pay-per-GB TURN (Twilio, Cloudflare
+      Realtime, metered.ca, Xirsys) exists if we ever need one. Given
+      there's a live demo (see resolved open question #3), worth testing
+      the venue network beforehand and having a mobile-hotspot fallback
+      rather than quietly adding a TURN server "just in case" — the
+      failure mode is itself part of the honest tradeoff story.
 - [ ] Slide deck / talk outline itself.
 
 ## Open questions (need the user's input, don't just decide)
 
-1. **Interaction mechanic**: is it truly "both hands on the planchette"
-   (current implementation), or should "ghost" have sole control and
-   "medium" just observes/asks questions (closer to real ouija folklore)?
-   Current code does the former because it's the more interesting P2P
-   demo, but this is a product decision, not just a technical one.
+1. ~~Interaction mechanic~~ — resolved, see Architecture decisions.
 2. **Deployment target for the matchmaking server** — depends on what the
    user wants to show live in the talk vs. what's cheapest/simplest to
-   stand up beforehand.
-3. **Talk format**: live coding? live demo with two phones/laptops on
-   stage? pre-recorded fallback in case of conference wifi? Should shape
-   how robust we make the reconnect/error-handling paths.
+   stand up beforehand. Candidate list given to the user; final pick
+   still pending.
+3. ~~Talk format~~ — resolved: no live coding, but there will be a live
+   demo. This means reconnect/error-handling robustness and testing on
+   venue wifi beforehand actually matter — flagging as follow-up work,
+   not yet done.
 4. **Room size**: bug-for-bug it's always exactly one medium + one ghost.
    Worth ever supporting spectators (read-only third connection)? Not
    started; flagging as a possible "if there's time" feature.
