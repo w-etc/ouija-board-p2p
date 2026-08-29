@@ -1,0 +1,138 @@
+:root {
+  color-scheme: dark;
+  --bg: #14100c;
+  --wood: #241a10;
+  --ink: #e9dcc0;
+  --ink-dim: #a5967a;
+  --accent: #c9a24b;
+  font-family: "Georgia", "Iowan Old Style", serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+#app {
+  width: 100%;
+  max-width: 900px;
+}
+
+h1 {
+  font-weight: normal;
+  letter-spacing: 0.05em;
+  text-align: center;
+}
+
+.dim {
+  color: var(--ink-dim);
+  font-size: 0.6em;
+}
+
+#setup {
+  text-align: center;
+}
+
+#status,
+#board-status {
+  color: var(--ink-dim);
+  min-height: 1.2em;
+}
+
+#role-buttons {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  margin-top: 1.5rem;
+}
+
+button {
+  background: var(--wood);
+  color: var(--ink);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 0.75rem 1.25rem;
+  font-size: 1rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #33240f;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+#board-surface {
+  position: relative;
+  aspect-ratio: 3 / 2;
+  width: 100%;
+  background: radial-gradient(ellipse at center, var(--wood) 0%, #150f09 100%);
+  border: 2px solid var(--accent);
+  border-radius: 12px;
+  overflow: hidden;
+  touch-action: none;
+}
+
+#letters {
+  position: absolute;
+  inset: 0;
+}
+
+.glyph {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  color: var(--ink);
+  font-size: 1.1rem;
+  user-select: none;
+  pointer-events: none;
+}
+
+.glyph.word {
+  font-size: 0.9rem;
+  letter-spacing: 0.15em;
+  color: var(--accent);
+}
+
+#planchette {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 90px;
+  height: 90px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  background: radial-gradient(circle at 35% 30%, #4a3a22, #201607 70%);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#planchette::after {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+
+#planchette.dragging {
+  cursor: grabbing;
+}

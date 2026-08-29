@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ouija P2P</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <section id="setup">
+        <h1>Ouija Board <span class="dim">// P2P</span></h1>
+        <p id="status">Choose a role to find a partner.</p>
+        <div id="role-buttons">
+          <button data-role="medium">Play as Medium</button>
+          <button data-role="ghost">Play as Ghost</button>
+          <button data-role="any">Either role</button>
+        </div>
+      </section>
+
+      <section id="board" hidden>
+        <div id="board-status"></div>
+        <div id="board-surface">
+          <div id="letters"></div>
+          <div id="planchette"></div>
+        </div>
+      </section>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
