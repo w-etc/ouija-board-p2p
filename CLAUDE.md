@@ -121,6 +121,28 @@ visually obvious when traffic stops touching the server.
       planchette glides + holds per tap (browser-tested with two
       simulated clients — chat delivery, role-gated tappability, and the
       hold-then-advance queue timing all verified).
+- [x] Responsive/mobile layout (2026-08-29) — motivated by the live demo's
+      corporate-wifi risk (see TURN server notes below): if venue wifi
+      blocks WebRTC, the fallback is phones on a mobile hotspot, so the
+      client needed to actually work on a phone, not just not-crash.
+      Role buttons stack full-width on narrow screens, body padding/type
+      scale down, chat input stays at 16px (avoids iOS auto-zoom-on-focus),
+      planchette size and glyph font-size use `clamp()`. Board switches to
+      a taller (4:5) aspect ratio under 600px width — portrait phones have
+      vertical room a 3:2 landscape ratio was wasting, and since glyph
+      positions are already fractions of the container, this alone spread
+      the letter arcs out further with no layout math changes. Widened the
+      numbers row's arc (`board.ts`) since it was the most cramped element
+      at small sizes. Browser-tested at iPhone SE and Pixel 5 viewports
+      with real touch taps (Playwright + device emulation): no horizontal
+      overflow, full tap→planchette→chat flow works, 44px role-button
+      targets. **Known limitation, not fully solved**: touch targets for
+      individual letters are ~27px (below the ~44px guideline) and a few
+      adjacent-letter pairs at the ends of each arc are close enough to
+      slightly overlap — 13 letters arced across a ~300px-wide phone
+      screen is a hard physical constraint, not a bug to chase further;
+      enlarging targets more would make the overlap worse, not better.
+      Same crowding a real paper board has at the ends of its letter rows.
 - [ ] Visual polish on the board (currently a functional but plain arc
       layout of letters/numbers/yes/no/goodbye).
 - [ ] Deploy the matchmaking server somewhere cheap. Shortlist given to

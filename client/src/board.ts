@@ -74,7 +74,7 @@ export function renderLetters(container: HTMLElement, options: RenderLettersOpti
 
   place(rowA, { count: rowA.length, cx: 0.5, cy: 0.42, rx: 0.44, ry: 0.24, startDeg: -80, endDeg: 80 });
   place(rowB, { count: rowB.length, cx: 0.5, cy: 0.58, rx: 0.44, ry: 0.24, startDeg: -80, endDeg: 80 });
-  place(numbers, { count: numbers.length, cx: 0.5, cy: 0.78, rx: 0.36, ry: 0.12, startDeg: -70, endDeg: 70 });
+  place(numbers, { count: numbers.length, cx: 0.5, cy: 0.8, rx: 0.44, ry: 0.16, startDeg: -78, endDeg: 78 });
 
   place(["YES"], { count: 1, cx: 0.14, cy: 0.14, rx: 0, ry: 0, startDeg: 0, endDeg: 0 }, true);
   place(["NO"], { count: 1, cx: 0.86, cy: 0.14, rx: 0, ry: 0, startDeg: 0, endDeg: 0 }, true);
