@@ -80,9 +80,30 @@ export function connect(wsUrl: string, requestedRole: RequestedRole, cb: Session
     };
 
     pc.onconnectionstatechange = () => {
+      console.log("[webrtc] connectionState:", pc?.connectionState);
+
       if (pc?.connectionState === "connected") {
         cb.onStatus("Connected directly to your partner — the server is no longer involved.");
+      } else if (pc?.connectionState === "failed") {
+        cb.onStatus(
+          "Could not establish a direct connection. This can happen on restrictive networks " +
+            "(corporate/conference wifi, symmetric NAT) that block WebRTC's peer-to-peer handshake " +
+            "without a TURN relay server, which this demo intentionally doesn't run. Try a mobile " +
+            "hotspot instead.",
+        );
+      } else if (pc?.connectionState === "disconnected") {
+        cb.onStatus("Connection to your partner dropped.");
       }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      console.log("[webrtc] iceConnectionState:", pc?.iceConnectionState);
+    };
+    pc.onicegatheringstatechange = () => {
+      console.log("[webrtc] iceGatheringState:", pc?.iceGatheringState);
+    };
+    pc.onicecandidateerror = (ev) => {
+      console.warn("[webrtc] icecandidateerror:", ev);
     };
 
     if (initiator) {
@@ -98,6 +119,12 @@ export function connect(wsUrl: string, requestedRole: RequestedRole, cb: Session
         wireChannel(channel);
       };
     }
+
+    setTimeout(() => {
+      if (channel?.readyState !== "open") {
+        cb.onStatus("Still trying to connect directly to your partner — this is taking longer than usual.");
+      }
+    }, 8000);
   }
 
   function wireChannel(ch: RTCDataChannel) {
@@ -153,6 +180,8 @@ export function connect(wsUrl: string, requestedRole: RequestedRole, cb: Session
     send(data: unknown) {
       if (channel && channel.readyState === "open") {
         channel.send(JSON.stringify(data));
+      } else {
+        console.warn("[webrtc] dropped outgoing message, data channel not open:", channel?.readyState, data);
       }
     },
     close() {
