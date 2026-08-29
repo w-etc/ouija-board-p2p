@@ -5,6 +5,9 @@
   "workspaces": [
     "client"
   ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "concurrently -n server,client -c blue,magenta \"npm run server:dev\" \"npm run dev -w client\"",
     "server:dev": "cd server && go run .",
