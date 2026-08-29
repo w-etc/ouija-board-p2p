@@ -13,10 +13,12 @@ up in a new session.
 
 ## Project layout
 
-- `server/` — the matchmaking + WebRTC signaling server (Node.js, `ws`).
+- `server/` — the matchmaking + WebRTC signaling server (Go, `gorilla/websocket`).
 - `client/` — the board itself (Vite + vanilla TypeScript).
 
 ## Running locally
+
+Requires Go 1.22+ and Node 20+.
 
 ```sh
 npm install

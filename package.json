@@ -3,13 +3,14 @@
   "private": true,
   "version": "0.0.0",
   "workspaces": [
-    "server",
     "client"
   ],
   "scripts": {
-    "dev": "concurrently -n server,client -c blue,magenta \"npm run dev -w server\" \"npm run dev -w client\"",
-    "build": "npm run build -w server && npm run build -w client",
-    "typecheck": "npm run typecheck -w server && npm run typecheck -w client"
+    "dev": "concurrently -n server,client -c blue,magenta \"npm run server:dev\" \"npm run dev -w client\"",
+    "server:dev": "cd server && go run .",
+    "server:build": "cd server && go build -o bin/server .",
+    "build": "npm run server:build && npm run build -w client",
+    "typecheck": "cd server && go vet ./... && cd .. && npm run typecheck -w client"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

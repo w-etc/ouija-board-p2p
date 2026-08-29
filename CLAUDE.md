@@ -32,10 +32,21 @@ visually obvious when traffic stops touching the server.
 
 ## Architecture decisions made so far
 
-- **Monorepo**, npm workspaces, two packages:
-  - `server/` — Node.js + TypeScript + `ws`. Deliberately not
-    socket.io/Express-heavy — bare WebSocket keeps the signaling logic
-    legible for a talk audience.
+- **Two packages, different toolchains** (not a single npm workspace root
+  for both — `server/` is its own Go module):
+  - `server/` — Go + `gorilla/websocket`. Originally prototyped in Node;
+    switched to Go because that's the user's day-job language and what
+    they'll actually be comfortable live-presenting/live-coding. The Node
+    version is still in git history (first commit on this branch) if a
+    side-by-side "same architecture, two languages" slide is ever wanted.
+    Concurrency model: one goroutine per connection for reads, one for
+    writes (gorilla connections aren't safe for concurrent writers), but
+    all *matchmaking state* (`waiting`, `rooms`, `roomByPlayerID`) lives
+    behind a single `Hub` goroutine that owns it exclusively and is only
+    ever touched via channels (`join`, `signal`, `unregister`) — "share
+    memory by communicating" instead of a mutex around a map. Worth
+    calling out in the talk as the direct counterpart to what the
+    single-threaded Node event loop gave us for free.
   - `client/` — Vite + vanilla TypeScript (no framework). Framework
     boilerplate would bury the WebRTC mechanics we actually want to show.
 - **Signaling protocol** (server ⇄ client, over plain WebSocket JSON
@@ -51,6 +62,11 @@ visually obvious when traffic stops touching the server.
   (`stun:stun.l.google.com:19302`) for NAT traversal — no TURN server (out
   of scope; would reintroduce a relay cost, which undercuts the talk's
   point unless we explicitly call it out as the tradeoff).
+- **No "host"**: once the data channel is open, medium and ghost are fully
+  symmetric peers — neither has authority over the other. The server
+  always makes the medium the WebRTC *initiator* (creates the SDP offer)
+  purely because the handshake needs someone to go first; that tie-break
+  stops mattering the instant the channel opens.
 - **Shared state model for the planchette**: both peers send their own
   pointer target position over the data channel; the rendered planchette
   position is the average of local + remote target, eased per frame. This
@@ -65,11 +81,10 @@ visually obvious when traffic stops touching the server.
 /
   CLAUDE.md          — this file
   README.md          — human-facing setup/run instructions
-  package.json        — npm workspaces root
+  package.json        — npm workspaces root (client only; server is a Go module)
   server/
-    package.json
-    tsconfig.json
-    src/index.ts       — matchmaking + signaling relay server
+    go.mod
+    main.go            — matchmaking + signaling relay server (Hub + WS plumbing)
   client/
     package.json
     tsconfig.json
@@ -120,9 +135,11 @@ visually obvious when traffic stops touching the server.
 
 ## How to run locally (dev)
 
+Requires Go 1.22+ and Node 20+.
+
 ```
 npm install
-npm run dev     # runs server (ws://localhost:8080) and client (Vite) together
+npm run dev     # runs server (ws://localhost:8080, go run .) and client (Vite) together
 ```
 
 Open two browser tabs at the client URL, pick "medium" in one and "ghost"
