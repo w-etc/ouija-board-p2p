@@ -186,8 +186,30 @@ how to redeploy either one.
       screen is a hard physical constraint, not a bug to chase further;
       enlarging targets more would make the overlap worse, not better.
       Same crowding a real paper board has at the ends of its letter rows.
-- [ ] Visual polish on the board (currently a functional but plain arc
-      layout of letters/numbers/yes/no/goodbye).
+- [x] **Planchette redesign (2026-08-30)** — the original 90px solid disc
+      hid whatever letter it landed on, defeating the point of tapping it.
+      Explored 4 directions as an interactive artifact (mocked up live on
+      the real board styling, not static images) before implementing:
+      a shrunk translucent disc, an authentic "viewing window" planchette
+      (SVG shield shape with a cut-out eye — closest to how real physical
+      planchettes solve this), a pure open ring, and a small offset
+      marker dot. User's call: the ring (**option C**) — the viewing
+      window's cut-out was tried and rejected as still too small to
+      reliably read a letter through at the board's actual font sizes.
+      Implemented: `#planchette` in `style.css` is now a transparent ring
+      (`clamp(34px, 11vw, 48px)`, border + glow box-shadow, no fill) —
+      down from `clamp(48px, 16vw, 90px)` solid. Legibility instead comes
+      from the landed *glyph* glowing gold (`.glyph.landed`, same
+      treatment as the existing tappable-hover state) rather than from
+      the planchette shape itself. `board.ts`'s `renderLetters()` now
+      returns a `symbol → element` map so `Planchette` can toggle that
+      class on whichever glyph it currently sits on, synced peer-to-peer
+      the same way tap position already was. Verified end-to-end
+      (Playwright, two real peers): ring renders with zero fill, landed
+      glow appears on both sides in sync, and correctly moves off the
+      previous letter when the queue advances to the next tap.
+- [ ] Further visual polish on the board beyond the planchette (currently
+      a functional but plain arc layout of letters/numbers/yes/no/goodbye).
 - [x] **Deployed and confirmed working live (2026-08-30).**
       - Server: **Render free Web Service**, deployed via the `render.yaml`
         blueprint (`runtime: go`, `rootDir: server`, `healthCheckPath:

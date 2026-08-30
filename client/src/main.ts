@@ -48,9 +48,7 @@ function startSession(role: RequestedRole) {
       const isGhost = matchedRole === "ghost";
       chatFormEl.hidden = matchedRole !== "medium";
 
-      planchette = new Planchette(planchetteEl);
-
-      renderLetters(lettersEl, {
+      const glyphsBySymbol = renderLetters(lettersEl, {
         onTap: isGhost
           ? (tap: TapEvent) => {
               planchette?.enqueue(tap);
@@ -58,6 +56,8 @@ function startSession(role: RequestedRole) {
             }
           : undefined,
       });
+
+      planchette = new Planchette(planchetteEl, glyphsBySymbol);
 
       boardStatusEl.textContent = isGhost
         ? "Tap a letter or symbol to answer."

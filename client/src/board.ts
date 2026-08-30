@@ -46,12 +46,16 @@ export interface RenderLettersOptions {
   onTap?: (tap: TapEvent) => void;
 }
 
-export function renderLetters(container: HTMLElement, options: RenderLettersOptions = {}) {
+/** Maps each board symbol to its rendered element, so a Planchette can highlight whichever one it lands on. */
+export type GlyphMap = Map<string, HTMLElement>;
+
+export function renderLetters(container: HTMLElement, options: RenderLettersOptions = {}): GlyphMap {
   container.innerHTML = "";
 
   const rowA = "ABCDEFGHIJKLM".split("");
   const rowB = "NOPQRSTUVWXYZ".split("");
   const numbers = "0123456789".split("");
+  const glyphsBySymbol: GlyphMap = new Map();
 
   const place = (chars: string[], opts: ArcOptions, wordClass = false) => {
     const positions = arcPositions(opts);
@@ -68,6 +72,7 @@ export function renderLetters(container: HTMLElement, options: RenderLettersOpti
         el.addEventListener("pointerdown", () => options.onTap!({ symbol: ch, x, y }));
       }
 
+      glyphsBySymbol.set(ch, el);
       container.appendChild(el);
     });
   };
@@ -79,6 +84,8 @@ export function renderLetters(container: HTMLElement, options: RenderLettersOpti
   place(["YES"], { count: 1, cx: 0.14, cy: 0.14, rx: 0, ry: 0, startDeg: 0, endDeg: 0 }, true);
   place(["NO"], { count: 1, cx: 0.86, cy: 0.14, rx: 0, ry: 0, startDeg: 0, endDeg: 0 }, true);
   place(["GOODBYE"], { count: 1, cx: 0.5, cy: 0.94, rx: 0, ry: 0, startDeg: 0, endDeg: 0 }, true);
+
+  return glyphsBySymbol;
 }
 
 const MOVE_MS = 600;
@@ -95,13 +102,24 @@ const HOLD_MS = 1000;
  * P2P framing again, just via replicated events instead of averaged
  * positions: nobody's arbitrating this, both sides are just applying the
  * same tap history.
+ *
+ * The planchette itself is a plain ring (no fill) — it used to be a solid
+ * disc, which meant it hid the very letter it was pointing at. Since the
+ * ring never covers anything, legibility instead comes from the landed
+ * glyph itself: whichever element `glyphsBySymbol` maps the tapped symbol
+ * to gets a `.landed` class (same glow treatment as the existing hover
+ * state) for as long as the planchette sits on it.
  */
 export class Planchette {
   private queue: TapEvent[] = [];
   private busy = false;
   private timer = 0;
+  private landedEl: HTMLElement | null = null;
 
-  constructor(private el: HTMLElement) {}
+  constructor(
+    private el: HTMLElement,
+    private glyphsBySymbol: GlyphMap,
+  ) {}
 
   enqueue(tap: TapEvent) {
     this.queue.push(tap);
@@ -119,10 +137,15 @@ export class Planchette {
     this.el.style.left = `${next.x * 100}%`;
     this.el.style.top = `${next.y * 100}%`;
 
+    this.landedEl?.classList.remove("landed");
+    this.landedEl = this.glyphsBySymbol.get(next.symbol) ?? null;
+    this.landedEl?.classList.add("landed");
+
     this.timer = window.setTimeout(this.advance, MOVE_MS + HOLD_MS);
   };
 
   destroy() {
     window.clearTimeout(this.timer);
+    this.landedEl?.classList.remove("landed");
   }
 }

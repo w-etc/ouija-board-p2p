@@ -124,36 +124,32 @@ button:disabled {
   transition: color 0.15s ease, text-shadow 0.15s ease;
 }
 
-.glyph.tappable:hover {
+.glyph.tappable:hover,
+.glyph.landed {
   color: var(--accent);
   text-shadow: 0 0 8px var(--accent);
 }
 
+/* A ring, not a disc — the planchette used to be a solid 90px circle that
+   hid whatever letter it landed on. An open ring never covers anything;
+   legibility instead comes from the landed glyph glowing (.glyph.landed,
+   above), which also reuses the same treatment as the existing hover
+   state instead of inventing a new visual language. */
 #planchette {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: clamp(48px, 16vw, 90px);
-  height: clamp(48px, 16vw, 90px);
+  width: clamp(34px, 11vw, 48px);
+  height: clamp(34px, 11vw, 48px);
   transform: translate(-50%, -50%);
   border-radius: 50%;
   border: 2px solid var(--accent);
-  background: radial-gradient(circle at 35% 30%, #4a3a22, #201607 70%);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.3),
+    0 0 14px rgba(201, 162, 75, 0.35),
+    inset 0 0 10px rgba(201, 162, 75, 0.35);
   transition: left 0.6s ease, top 0.6s ease;
   pointer-events: none;
-}
-
-#planchette::after {
-  content: "";
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 6px var(--accent);
 }
 
 #chat {
