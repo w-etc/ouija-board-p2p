@@ -238,32 +238,39 @@ how to redeploy either one.
         GitHub Actions, and the Render blueprint signup/apply + copying its
         URL into the repo variable. Both done by the user; end-to-end round
         confirmed working from the live URLs.
-- [ ] **Cost-at-scale estimates for the talk (requested 2026-08-29, not
-      started)**: the talk needs concrete $ figures for running the
-      matchmaking server at different scales — user gave 100 ouija boards
-      (200 concurrent players), 1,000 boards, 10,000 boards as the
-      benchmark points (more orders of magnitude likely worth adding,
-      e.g. 100,000). This is the payoff of the whole "cheap matchmaking,
-      P2P gameplay" thesis, so it deserves real numbers, not hand-waving:
-      - Needs a per-connection resource model first: each player is one
-        persistent WebSocket held by the Go server for the ~duration of a
-        session (matchmaking wait + however long their board session
-        runs), plus the brief signaling relay traffic (a handful of
-        small JSON messages per room: offer/answer/ICE candidates) —
-        gameplay traffic (chat/taps) never touches the server, which is
-        exactly why this should stay cheap even at scale. Memory per
-        goroutine + WS connection is small (each `Player`/`Hub` state is
-        tiny); the real scaling questions are concurrent connection count
-        vs. a given host's connection/memory limits, and how session
-        duration affects concurrency at a given boards/hour rate.
-      - Should map those N-boards figures to concrete instance sizes on
-        the shortlisted platforms (Fly.io/VPS/Cloud Run/Render) and give
-        $/mo at each, plus calling out where a tier boundary gets crossed
-        (e.g. "free tier covers X, above that you need $Y/mo").
-      - Worth benchmarking the actual Go server (or at least reasoning
-        from gorilla/websocket's known overhead) rather than pulling
-        numbers out of the air, given this is the headline evidence for
-        the talk's argument.
+- [x] **Cost-at-scale estimates for the talk (2026-08-30) — done, with real
+      benchmark data, not estimated.** Published as an artifact:
+      [Scaling the Matchmaker](https://claude.ai/code/artifact/644c8f23-f040-40d7-9166-0d2b2af51e66).
+      Headline: **free up to ~2,000 concurrent players (1,000 boards),
+      ~$25/mo at 20,000 players (10,000 boards)** on Render.
+      - Method: compiled the actual `server/` binary, opened real
+        WebSocket connections against it (alternating medium/ghost so
+        the hub pairs and rooms them like real sustained play), and
+        sampled process `VmRSS` at 0/1k/2k/4k/6k/8k connections. Marginal
+        cost per connection held consistently at 29–33 KB across that
+        whole range — not a two-point guess. Idle baseline: 7.1 MB.
+      - CPU: sampled `utime`+`stime` over a 10s idle window at 4,000
+        connected/matched players — **0.000% of one core.** Confirms the
+        thesis mechanically: matched connections just sit blocked on a
+        channel/socket read until the next message, and gameplay traffic
+        never generates one.
+      - Cost table (measured × 3 headroom, a stated judgment call, not
+        part of the measurement — covers churn/GC/real-network overhead
+        beyond this loopback benchmark): 100 boards → 38.8MB → Render
+        Free, $0/mo. 1,000 boards → 197MB → still Render Free, $0/mo.
+        10,000 boards → 1.7GB → Render Standard, $25/mo (or a Hetzner
+        CX22 VPS for ~$5/mo, if the talk wants the more dramatic number).
+        100,000 boards → 17GB → nominally Render Pro Ultra ($450/mo),
+        but the artifact deliberately flags this as where the model
+        stops being honest: a single in-memory `Hub` goroutine is a
+        single point of failure regardless of box size, so the real
+        answer past that scale is horizontal scaling, not a bigger
+        instance — worth saying on stage rather than quietly extending a
+        curve past where it stops meaning what it says.
+      - Explicitly out of scope, stated in the artifact: this only
+        models matchmaking/signaling load. Chat and taps travel the
+        peer-to-peer `RTCDataChannel` and never touch the server at any
+        scale, which is the whole point being illustrated.
 - [x] TURN server explanation given to the user (2026-08-29) — see the
       "No TURN server" decision above for the summary. Key points if this
       becomes a slide: STUN just helps peers discover their reachable
