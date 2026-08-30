@@ -31,6 +31,15 @@ To make that concrete, we're building a toy but real demo:
 The signaling-vs-data distinction *is* the talk. Slides/demo should make it
 visually obvious when traffic stops touching the server.
 
+## Live deployment (confirmed working 2026-08-30)
+
+- Client: **https://w-etc.github.io/ouija-board-p2p/**
+- Matchmaking server: **wss://ouija-matchmaking.onrender.com** (Render free
+  tier — cold-starts after 15 min idle, pre-warm before demoing live)
+
+See the deployment entry in Status below for how these are configured and
+how to redeploy either one.
+
 ## Architecture decisions made so far
 
 - **Two packages, different toolchains** (not a single npm workspace root
@@ -179,42 +188,34 @@ visually obvious when traffic stops touching the server.
       Same crowding a real paper board has at the ends of its letter rows.
 - [ ] Visual polish on the board (currently a functional but plain arc
       layout of letters/numbers/yes/no/goodbye).
-- [ ] Deploy the matchmaking server (config done, awaiting user action —
-      see below). Decision (2026-08-30): **Render free
-      Web Service**, picked specifically because the user wants a no-card
-      deploy path. Re-researched the shortlist at that point since these
-      policies drift — Fly.io removed its card-free tier entirely in 2024
-      (new signups now require a card), so it dropped off the list. Config
-      is done: `render.yaml` blueprint at repo root (`runtime: go`,
-      `rootDir: server`, `healthCheckPath: /healthz` — added a dedicated
-      `/healthz` endpoint to `main.go` since the existing `/` handler
-      correctly 400s any non-WebSocket request, which would otherwise look
-      unhealthy to Render's default checker). **Remaining, needs the
-      user**: sign up at render.com (free, no card, GitHub OAuth), New →
-      Blueprint → this repo → Apply, then set the resulting `wss://` URL
-      as the `VITE_MATCHMAKING_URL` repo variable (Settings → Secrets and
-      variables → Actions) so the Pages build picks it up. Free plan
-      cold-starts after 15 min idle (~1 min to wake) — pre-warm before the
-      live demo. If cold-start risk ever becomes a dealbreaker, a cheap
-      VPS/Fly.io (now card-required) remain the no-cold-start fallback,
-      and Cloudflare Workers/Durable Objects is genuinely card-free with
-      no cold starts too, but means rewriting the server in JS — not
-      pursued since Go is the point (see toolchain decision above).
-- [ ] Deploy the client (config done, awaiting user action — see below).
-      Decision (2026-08-30): **GitHub Pages**, since it
-      needs no external account at all (same repo/GitHub identity we
-      already push to) — the clear winner for "handle it without a card."
-      Config is done: `.github/workflows/deploy-pages.yml` builds on every
-      push to `claude/p2p-ouija-matchmaking-olrj29` and deploys via
-      `actions/deploy-pages`; `vite.config.ts` sets `base:
-      "/ouija-board-p2p/"` for production builds only (GitHub Pages
-      project sites are served under that subpath; local `npm run dev`
-      is unaffected — verified both the built asset paths and that dev
-      still serves at `/`). **Remaining, needs the user**: one manual,
-      one-time toggle at repo Settings → Pages → Source: GitHub Actions
-      (no API for this in the GitHub MCP tools available this session).
-      Once that's flipped and the Render URL is set as described above,
-      the site is live at `https://w-etc.github.io/ouija-board-p2p/`.
+- [x] **Deployed and confirmed working live (2026-08-30).**
+      - Server: **Render free Web Service**, deployed via the `render.yaml`
+        blueprint (`runtime: go`, `rootDir: server`, `healthCheckPath:
+        /healthz`) — picked specifically for the no-credit-card requirement;
+        re-researched the hosting shortlist at the time since these policies
+        drift (Fly.io dropped its card-free tier entirely in 2024, which is
+        why it's not this). Live at `https://ouija-matchmaking.onrender.com`
+        (`wss://ouija-matchmaking.onrender.com` for the client). Free plan
+        cold-starts after 15 min idle (~1 min to wake) — **pre-warm it with
+        a request a few minutes before the live demo.** If cold-start risk
+        ever becomes a dealbreaker, a cheap VPS/Fly.io (now card-required)
+        or Cloudflare Workers/Durable Objects (card-free, no cold starts,
+        but means rewriting the server in JS) are the alternatives — not
+        pursued since Go is the point (see toolchain decision above).
+      - Client: **GitHub Pages**, via `.github/workflows/deploy-pages.yml`
+        (builds on every push to `claude/p2p-ouija-matchmaking-olrj29`,
+        deploys via `actions/deploy-pages`) and `vite.config.ts`'s `base:
+        "/ouija-board-p2p/"` for production builds only. Live at
+        `https://w-etc.github.io/ouija-board-p2p/`, built with
+        `VITE_MATCHMAKING_URL` pointed at the Render URL above (set as a
+        repo variable — Vite bakes it in at build time, so re-set + rebuild
+        if the Render URL ever changes).
+      - Both required one manual step each that Claude Code couldn't do via
+        API (no GitHub MCP tool exposes the Pages source setting; no Render
+        credentials available): flipping repo Settings → Pages → Source to
+        GitHub Actions, and the Render blueprint signup/apply + copying its
+        URL into the repo variable. Both done by the user; end-to-end round
+        confirmed working from the live URLs.
 - [ ] **Cost-at-scale estimates for the talk (requested 2026-08-29, not
       started)**: the talk needs concrete $ figures for running the
       matchmaking server at different scales — user gave 100 ouija boards
@@ -259,10 +260,7 @@ visually obvious when traffic stops touching the server.
 ## Open questions (need the user's input, don't just decide)
 
 1. ~~Interaction mechanic~~ — resolved, see Architecture decisions.
-2. **Deployment target for the matchmaking server** — depends on what the
-   user wants to show live in the talk vs. what's cheapest/simplest to
-   stand up beforehand. Candidate list given to the user; final pick
-   still pending.
+2. ~~Deployment target~~ — resolved, see "Live deployment" above.
 3. ~~Talk format~~ — resolved: no live coding, but there will be a live
    demo. This means reconnect/error-handling robustness and testing on
    venue wifi beforehand actually matter — flagging as follow-up work,
