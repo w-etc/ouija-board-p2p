@@ -109,10 +109,15 @@ function startSession(role: RequestedRole) {
         return;
       }
 
-      boardStatusEl.textContent =
-        currentRole === "ghost"
-          ? "The medium vanished without saying goodbye. Refresh to find a new one."
-          : "Your partner disconnected. Refresh to find a new one.";
+      if (currentRole === "ghost") {
+        const remote = session?.getRemoteAddress();
+        boardStatusEl.textContent = remote
+          ? `The medium vanished without saying goodbye. Folklore says it lingers — last seen at ${remote.address}:${remote.port}.`
+          : "The medium vanished without saying goodbye. Refresh to find a new one.";
+        return;
+      }
+
+      boardStatusEl.textContent = "Your partner disconnected. Refresh to find a new one.";
     },
   });
 }

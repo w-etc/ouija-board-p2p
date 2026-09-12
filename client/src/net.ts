@@ -18,9 +18,43 @@ export interface SessionCallbacks {
   onPeerLeft: () => void;
 }
 
+export interface RemoteAddress {
+  address: string;
+  port: number;
+}
+
 export interface Session {
   send(data: unknown): void;
   close(): void;
+  /**
+   * The peer's address, parsed from the ICE candidates they sent during
+   * signaling. Nothing new is collected here — every ICE candidate we
+   * receive already contains this in plain text (that's inherent to how
+   * ICE/NAT traversal works, see net.ts's module comment), we're just
+   * reading it back out instead of only handing it to addIceCandidate().
+   * (getStats() would be the "proper" API for this, but Chromium blanks
+   * candidate addresses there for privacy — parsing the candidate string
+   * directly is what actually works, and is the same technique WebRTC
+   * IP-leak checker tools have always used.)
+   */
+  getRemoteAddress(): RemoteAddress | null;
+}
+
+interface ParsedCandidate extends RemoteAddress {
+  /** "host" (local network address — often mDNS-masked to a random .local name
+   *  by the browser itself, same privacy mechanism behind the Firefox issue in
+   *  CLAUDE.md), "srflx" (the real public address, discovered via STUN — this
+   *  is the one that matters once the two peers are on different networks),
+   *  or "relay" (unused here, we don't run a TURN server). */
+  type: string;
+}
+
+/** Pulls the address/port/type out of a raw ICE candidate line, e.g. "candidate:842163049 1 udp 2113937151 203.0.113.5 54321 typ srflx ...". */
+function parseCandidateAddress(candidateLine: string | undefined): ParsedCandidate | null {
+  if (!candidateLine) return null;
+  const match = candidateLine.match(/^candidate:\S+ \d+ \S+ \d+ (\S+) (\d+) typ (\S+)/);
+  if (!match) return null;
+  return { address: match[1], port: Number(match[2]), type: match[3] };
 }
 
 export function connect(wsUrl: string, requestedRole: RequestedRole, cb: SessionCallbacks): Session {
@@ -31,6 +65,7 @@ export function connect(wsUrl: string, requestedRole: RequestedRole, cb: Session
   let roomId: string | null = null;
   let remoteDescSet = false;
   let pendingCandidates: RTCIceCandidateInit[] = [];
+  let remoteCandidates: ParsedCandidate[] = [];
 
   ws.addEventListener("open", () => {
     cb.onStatus("Connected to matchmaking server. Looking for a partner...");
@@ -160,6 +195,9 @@ export function connect(wsUrl: string, requestedRole: RequestedRole, cb: Session
     }
 
     if (data.kind === "ice") {
+      const parsed = parseCandidateAddress(data.candidate?.candidate);
+      if (parsed) remoteCandidates.push(parsed);
+
       if (remoteDescSet) {
         await pc.addIceCandidate(data.candidate);
       } else {
@@ -176,6 +214,15 @@ export function connect(wsUrl: string, requestedRole: RequestedRole, cb: Session
     pendingCandidates = [];
   }
 
+  function getRemoteAddress(): RemoteAddress | null {
+    // Prefer the STUN-discovered public address — on the real internet
+    // that's the one that's actually informative. Host candidates are
+    // only useful as a fallback for same-network testing, since in real
+    // cross-network use they're just a private LAN address (and often
+    // mDNS-masked to a random .local name before it even reaches here).
+    return remoteCandidates.find((c) => c.type === "srflx") ?? remoteCandidates.at(-1) ?? null;
+  }
+
   return {
     send(data: unknown) {
       if (channel && channel.readyState === "open") {
@@ -189,5 +236,6 @@ export function connect(wsUrl: string, requestedRole: RequestedRole, cb: Session
       pc?.close();
       ws.close();
     },
+    getRemoteAddress,
   };
 }
