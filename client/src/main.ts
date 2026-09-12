@@ -1,4 +1,4 @@
-import { renderLetters, Planchette, type TapEvent } from "./board";
+import { renderLetters, Planchette, MOVE_MS, type TapEvent } from "./board";
 import { connect, type MatchedRole, type RequestedRole, type Session } from "./net";
 
 const WS_URL = (import.meta.env.VITE_MATCHMAKING_URL as string | undefined) ?? "ws://localhost:8080";
@@ -15,6 +15,16 @@ const chatInputEl = document.getElementById("chat-input") as HTMLInputElement;
 
 let session: Session | null = null;
 let planchette: Planchette | null = null;
+let currentRole: MatchedRole | null = null;
+// Set once the session reaches a terminal state we put custom copy on
+// (goodbye, peer-left) — guards that message against the WebSocket's own
+// "close" event firing moments later with a generic status update.
+let sessionEnded = false;
+// Whether GOODBYE was the last symbol tapped — the ritual completed properly
+// versus someone just vanishing mid-session. Only the ghost ever taps, so
+// this is set locally when the ghost taps it, or on receipt of that tap
+// message when we're the medium.
+let lastTapWasGoodbye = false;
 
 document.querySelectorAll<HTMLButtonElement>("#role-buttons button").forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -38,10 +48,14 @@ function startSession(role: RequestedRole) {
 
   session = connect(WS_URL, role, {
     onStatus(text) {
+      if (sessionEnded) return;
       statusEl.textContent = text;
       boardStatusEl.textContent = text;
     },
     onMatched(matchedRole: MatchedRole) {
+      currentRole = matchedRole;
+      lastTapWasGoodbye = false;
+      sessionEnded = false;
       setupEl.hidden = true;
       boardEl.hidden = false;
 
@@ -53,6 +67,16 @@ function startSession(role: RequestedRole) {
           ? (tap: TapEvent) => {
               planchette?.enqueue(tap);
               session?.send({ type: "tap", symbol: tap.symbol, x: tap.x, y: tap.y });
+
+              if (tap.symbol === "GOODBYE") {
+                lastTapWasGoodbye = true;
+                // Let the planchette actually arrive before the screen changes.
+                window.setTimeout(() => {
+                  sessionEnded = true;
+                  boardStatusEl.textContent = "You have said your goodbyes. The connection is closed.";
+                  session?.close();
+                }, MOVE_MS);
+              }
             }
           : undefined,
       });
@@ -69,6 +93,7 @@ function startSession(role: RequestedRole) {
     onMessage(data) {
       if (data.type === "tap" && planchette) {
         planchette.enqueue({ symbol: data.symbol, x: data.x, y: data.y });
+        if (data.symbol === "GOODBYE") lastTapWasGoodbye = true;
         return;
       }
       if (data.type === "chat" && typeof data.text === "string") {
@@ -77,7 +102,17 @@ function startSession(role: RequestedRole) {
       }
     },
     onPeerLeft() {
-      boardStatusEl.textContent = "Your partner disconnected. Refresh to find a new one.";
+      sessionEnded = true;
+      if (lastTapWasGoodbye) {
+        boardStatusEl.textContent =
+          currentRole === "medium" ? "The ghost has said its goodbyes and departed." : "You said your goodbyes.";
+        return;
+      }
+
+      boardStatusEl.textContent =
+        currentRole === "ghost"
+          ? "The medium vanished without saying goodbye. Refresh to find a new one."
+          : "Your partner disconnected. Refresh to find a new one.";
     },
   });
 }

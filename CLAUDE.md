@@ -284,6 +284,63 @@ how to redeploy either one.
       the venue network beforehand and having a mobile-hotspot fallback
       rather than quietly adding a TURN server "just in case" — the
       failure mode is itself part of the honest tradeoff story.
+- [x] **GOODBYE now actually ends the session (2026-09-12)** — a folklore
+      parallel: real ouija tradition says you risk the spirit lingering if
+      you don't let it say goodbye through the planchette first. Ghost
+      tapping GOODBYE now ends the session on the ghost's end, rather
+      than being purely cosmetic like every other glyph — the planchette
+      still visually arrives first (waits `MOVE_MS` from `board.ts`),
+      then `session.close()`. The medium gets a calm "the ghost has said
+      its goodbyes" message rather than the generic disconnect one; the
+      ghost sees a distinct "the medium vanished without saying goodbye"
+      message if the medium disconnects first instead. Both sides track
+      a shared `lastTapWasGoodbye` bit (set locally by the ghost on tap,
+      set on the medium on *receiving* that tap message) so `onPeerLeft`
+      can tell a proper ending from an abrupt one. Browser-tested with
+      two real peers both ways. One real bug found only by testing, not
+      typechecking: the goodbye status message was getting silently
+      clobbered a moment later by the WebSocket's own generic
+      "Disconnected from matchmaking server" status update, since closing
+      the session fires that asynchronously — fixed with a `sessionEnded`
+      guard in `onStatus`.
+      - **A second half of this idea — showing the ghost the medium's
+        IP:port on an abrupt disconnect — was implemented and tested
+        working, but is not committed.** See the entry directly below.
+- [ ] **IP-reveal-on-abrupt-disconnect — implemented, tested, held back
+      from commit.** Extends the above: if the medium vanishes without
+      GOODBYE having been tapped, show the ghost the medium's IP:port
+      ("it lingers — last seen at ..."), via `net.ts`'s
+      `getRemoteAddress()`, which parses the peer's address directly out
+      of the ICE candidate strings already received during signaling
+      (preferring the STUN-discovered `srflx` public address over the
+      local `host` one — `RTCPeerConnection.getStats()` looked like the
+      "proper" API for this but Chromium blanks address fields there for
+      privacy; found by testing, not assumed). This shipped only after a
+      long, explicit back-and-forth about the privacy implications of
+      surfacing a peer's IP as a *designed feature* rather than an
+      incidental fact of how WebRTC/NAT traversal works — real precedent
+      exists (Xbox Live/early Discord P2P voice and "IP booter"
+      harassment) for why this is a different thing from the passive
+      technical exposure the rest of the app already has. **User's
+      decision at the time**: ship it anyway, reasoning that the talk
+      audience is former coworkers who already know each other — which
+      justifies the *live demo*, but doesn't change that the same code
+      would run on the public GitHub Pages/Render deployment, reachable
+      by any stranger pairing with any other stranger.
+      - **Why it's not committed**: pushing it tripped this session's
+        automated PII-handling guardrail (a harness-level classifier
+        separate from either of our judgment calls), which blocked the
+        commit outright. The code is written and verified working — it's
+        sitting as an uncommitted diff to `client/src/net.ts` (adds
+        `getRemoteAddress()` + the `ParsedCandidate`/`srflx` preference
+        logic) and a small addition to `main.ts`'s `onPeerLeft` (the
+        `currentRole === "ghost"` branch that calls it) — reapply those
+        two diffs together if this gets committed later. Next session:
+        don't just retry the same commit — either get the user's explicit
+        go-ahead to try again (maybe the block is content-based and
+        immovable), or gate it behind a flag that's off in the public
+        build, or decide not to ship it at all. Whichever way this
+        resolves, keep this note until it does.
 - [ ] Slide deck / talk outline itself.
 
 ## Open questions (need the user's input, don't just decide)

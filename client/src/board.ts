@@ -88,7 +88,7 @@ export function renderLetters(container: HTMLElement, options: RenderLettersOpti
   return glyphsBySymbol;
 }
 
-const MOVE_MS = 600;
+export const MOVE_MS = 600;
 const HOLD_MS = 1000;
 
 /**
