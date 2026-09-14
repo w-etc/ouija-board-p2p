@@ -303,6 +303,24 @@ how to redeploy either one.
       "Disconnected from matchmaking server" status update, since closing
       the session fires that asynchronously — fixed with a `sessionEnded`
       guard in `onStatus`.
+      - **Second bug, found by the user in actual use (2026-09-14)**: the
+        medium would briefly flash "Connection to your partner dropped."
+        right before the correct goodbye message appeared. Cause: two
+        independent signals racing on the medium's side when the ghost
+        calls `session.close()` — the medium's own
+        `pc.onconnectionstatechange` fires almost immediately
+        (`connectionState → "disconnected"`, a generic message with no
+        idea a goodbye happened), while the authoritative,
+        goodbye-aware `peer-left` message from the server arrives
+        slightly later (server has to detect the ghost's WebSocket
+        closing first). Fixed by no longer surfacing the `"disconnected"`
+        connection state to the UI at all — it's inherently unable to
+        know about GOODBYE, and it's often transient anyway (ICE can flap
+        back to `"connected"` on its own), so `peer-left` alone is now
+        the sole source of the user-facing disconnect message. Verified
+        by sampling the medium's status text at 20ms resolution through
+        the whole goodbye sequence — confirms zero intermediate
+        transitions, not just a correct final value.
 - [x] **IP-reveal-on-abrupt-disconnect (2026-09-12)** — extends the above:
       if the medium vanishes without GOODBYE having been tapped, the
       ghost's disconnect message shows the medium's IP:port ("it lingers

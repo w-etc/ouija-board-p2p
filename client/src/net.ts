@@ -126,9 +126,15 @@ export function connect(wsUrl: string, requestedRole: RequestedRole, cb: Session
             "without a TURN relay server, which this demo intentionally doesn't run. Try a mobile " +
             "hotspot instead.",
         );
-      } else if (pc?.connectionState === "disconnected") {
-        cb.onStatus("Connection to your partner dropped.");
       }
+      // "disconnected" is deliberately not surfaced here — it's often
+      // transient (ICE can flap back to "connected" on its own) and, more
+      // importantly, it has no way to know about a graceful GOODBYE. The
+      // server-mediated "peer-left" message is the authoritative signal
+      // for "your partner is actually gone" and is what carries the
+      // correct, goodbye-aware message — showing a generic one here too
+      // just races it and sometimes wins, flashing the wrong message
+      // first.
     };
 
     pc.oniceconnectionstatechange = () => {
