@@ -321,6 +321,31 @@ how to redeploy either one.
         by sampling the medium's status text at 20ms resolution through
         the whole goodbye sequence — confirms zero intermediate
         transitions, not just a correct final value.
+      - **Follow-up question worth recording (2026-09-14)**: with
+        `"disconnected"` no longer surfaced, does the medium still learn
+        about a *genuine* (non-goodbye) drop? Two paths remain: a clean
+        close (tab/browser closed) still gets a fast, reliable
+        `peer-left` from the server, same as before. A truly silent
+        drop (network dies with no close frame at all) currently has no
+        server-side timeout to catch it promptly — `server/main.go`'s
+        `readPump` blocks on `conn.ReadMessage()` with no deadline or
+        ping/pong, so that path alone could take a long time (OS-level
+        TCP defaults, not seconds). **Decided not to add one**: the
+        matchmaking WebSocket only stays open post-match to hear about
+        the partner leaving, and a genuinely dead network kills the P2P
+        connection at the same moment for the same reason — WebRTC's own
+        ICE agent already runs periodic connectivity checks independent
+        of our server, and reaches `connectionState: "failed"` on its
+        own, almost certainly faster than an un-timed-out server read
+        loop would. The goodbye-vs-abrupt wording doesn't care which
+        signal fired either — that's driven entirely by `lastTapWasGoodbye`
+        (from the data channel), independent of both paths. So a Go
+        server keepalive would add real complexity for a case ICE
+        already covers; fixed the one actual bug instead — `"failed"`'s
+        message previously always said "could not establish a direct
+        connection" even if the pair *had* been connected and then
+        genuinely dropped. `net.ts` now tracks `hasConnectedOnce` and
+        words it accordingly (never-connected vs. dropped-after-connecting).
 - [x] **IP-reveal-on-abrupt-disconnect (2026-09-12)** — extends the above:
       if the medium vanishes without GOODBYE having been tapped, the
       ghost's disconnect message shows the medium's IP:port ("it lingers
@@ -365,8 +390,9 @@ how to redeploy either one.
 2. ~~Deployment target~~ — resolved, see "Live deployment" above.
 3. ~~Talk format~~ — resolved: no live coding, but there will be a live
    demo. This means reconnect/error-handling robustness and testing on
-   venue wifi beforehand actually matter — flagging as follow-up work,
-   not yet done.
+   venue wifi beforehand actually matter. Some of the error-handling work
+   is now done (see the disconnect-messaging fixes in Status, 2026-09-14)
+   — venue wifi testing itself is still outstanding.
 4. **Room size**: bug-for-bug it's always exactly one medium + one ghost.
    Worth ever supporting spectators (read-only third connection)? Not
    started; flagging as a possible "if there's time" feature.

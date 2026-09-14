@@ -109,6 +109,7 @@ export function connect(wsUrl: string, requestedRole: RequestedRole, cb: Session
     pc = new RTCPeerConnection({
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     });
+    let hasConnectedOnce = false;
 
     pc.onicecandidate = (ev) => {
       if (ev.candidate) sendSignal({ kind: "ice", candidate: ev.candidate.toJSON() });
@@ -118,13 +119,26 @@ export function connect(wsUrl: string, requestedRole: RequestedRole, cb: Session
       console.log("[webrtc] connectionState:", pc?.connectionState);
 
       if (pc?.connectionState === "connected") {
+        hasConnectedOnce = true;
         cb.onStatus("Connected directly to your partner — the server is no longer involved.");
       } else if (pc?.connectionState === "failed") {
+        // ICE gives up and reaches "failed" two different ways: it never
+        // managed to connect at all, or it *was* connected and couldn't
+        // recover after the peer disappeared (this is also the backup
+        // path for detecting a silent network drop — the matchmaking
+        // server's peer-left is the primary one, but it only sees a
+        // *clean* close; a peer that vanishes mid-connection with no
+        // close frame at all is caught here instead, since ICE runs its
+        // own periodic connectivity checks independent of the server).
+        // Worth wording those two cases differently rather than always
+        // implying the handshake itself never worked.
         cb.onStatus(
-          "Could not establish a direct connection. This can happen on restrictive networks " +
-            "(corporate/conference wifi, symmetric NAT) that block WebRTC's peer-to-peer handshake " +
-            "without a TURN relay server, which this demo intentionally doesn't run. Try a mobile " +
-            "hotspot instead.",
+          hasConnectedOnce
+            ? "Lost the direct connection to your partner and couldn't reconnect. Refresh to find a new one."
+            : "Could not establish a direct connection. This can happen on restrictive networks " +
+                "(corporate/conference wifi, symmetric NAT) that block WebRTC's peer-to-peer handshake " +
+                "without a TURN relay server, which this demo intentionally doesn't run. Try a mobile " +
+                "hotspot instead.",
         );
       }
       // "disconnected" is deliberately not surfaced here — it's often
