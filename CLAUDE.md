@@ -65,7 +65,8 @@ how to redeploy either one.
   - Server → client: `{type: "matched", roomId, role, initiator}`
   - Relay (either direction, server just forwards): `{type: "signal",
     roomId, data: {kind: "offer"|"answer"|"ice", ...}}`
-  - Server → client on disconnect: `{type: "peer-left"}`
+  - Server → client on disconnect (only reachable pre-connection, see the
+    pure-P2P entry in Status below): `{type: "peer-left"}`
   - Matching logic: prefer an explicit medium+ghost pair; fall back to
     pairing two "any" players and assigning roles arbitrarily.
 - **WebRTC**: single `RTCDataChannel` per room, one public STUN server
@@ -382,6 +383,56 @@ how to redeploy either one.
         their own machine, which isn't subject to this session's
         restriction — verified afterward by pulling their pushed commit
         and re-running typecheck + the same browser tests, both clean.
+- [x] **True pure-P2P mode (2026-09-16)** — until now, the matchmaking
+      `WebSocket` stayed open for the entire session purely to relay
+      `peer-left`, which meant "the server is out of the loop entirely"
+      was only true for gameplay data, not the connection itself. Changed
+      `net.ts` so the matchmaking socket closes the instant the
+      `RTCDataChannel` opens (`wireChannel`'s `ch.onopen`) — from that
+      point neither peer has any connection to the server at all.
+      Disconnect detection moved entirely onto WebRTC-native signals:
+      the data channel's own `onclose` event (fires promptly on a clean
+      close, e.g. GOODBYE calling `session.close()`), or
+      `pc.connectionState` reaching `"failed"` as the fallback for a
+      truly silent drop (no close frame possible at all). Both paths
+      funnel through a new `notifyPeerGone()` with `closedLocally`/
+      `peerGoneNotified` guards so our own deliberate teardown doesn't
+      get mistaken for the peer vanishing, and so the two detection paths
+      can't double-fire. `peer-left` still exists but is now only
+      reachable pre-connection (during matchmaking/signaling, before the
+      socket closes).
+      - **Measured, not assumed (Playwright, two real peers)**: confirmed
+        the matchmaking WS actually closes ~167ms after the data channel
+        opens — well before any teardown — via Playwright's `websocket`
+        page event. Then measured how long an abrupt, no-goodbye medium
+        disconnect (tab closed with no cleanup) takes the ghost to
+        notice now that there's no server fast-path: **~15.9 seconds**,
+        driven by Chromium's default ICE consent/failure timeout. The
+        goodbye path, by contrast, got *faster* under this change
+        (~640ms, gated only by the planchette's `MOVE_MS`) since it no
+        longer waits on a server relay at all — it's detected straight
+        off the data channel's own close event.
+      - **Trade-off this makes real, not hypothetical**: a clean
+        disconnect (GOODBYE, tab closed normally) is still fast. A
+        genuinely silent network death (wifi drops, process killed) now
+        takes ~16s to surface on the ghost's side, versus being
+        near-instant when the server was relaying `peer-left`. Worth
+        deciding whether that's acceptable for the live demo before
+        relying on it — a corporate-wifi hiccup mid-demo would now read
+        as "still connected" for that whole window. Not addressed yet:
+        if it needs to be faster, the fix is tightening the demo-side ICE
+        timing (there's no `iceTransportPolicy`/consent-timeout knob
+        currently set), not resurrecting the server socket, which would
+        undo the point of this change.
+      - Regression-tested alongside: existing chat/tap/planchette-sync
+        flow, and the GOODBYE-ends-session messaging (both directions),
+        all still pass — see the browser-tested notes on those features
+        above, now re-verified against this change.
+      - Shipped as the new default behavior (committed and deployed same
+        session) so the live demo actually reflects it. The ~16s
+        abrupt-disconnect number above is the thing to weigh before
+        leaning on this for the live demo — flagging as a real open
+        question below, not a settled trade-off.
 - [ ] Slide deck / talk outline itself.
 
 ## Open questions (need the user's input, don't just decide)
@@ -396,6 +447,13 @@ how to redeploy either one.
 4. **Room size**: bug-for-bug it's always exactly one medium + one ghost.
    Worth ever supporting spectators (read-only third connection)? Not
    started; flagging as a possible "if there's time" feature.
+5. **Pure-P2P abrupt-disconnect latency (2026-09-16)**: now that the
+   matchmaking socket closes as soon as the data channel opens (see
+   Status), a silent network drop (as opposed to a clean GOODBYE/tab
+   close) takes ICE's own timeout to surface — measured at ~16 seconds
+   in testing. Acceptable for the live demo as-is, or worth tuning (e.g.
+   a shorter custom watchdog on sustained `"disconnected"` before waiting
+   for the browser's own `"failed"`) before relying on it on stage?
 
 ## How to run locally (dev)
 

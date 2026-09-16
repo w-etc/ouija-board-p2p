@@ -2,9 +2,12 @@
  * WebSocket signaling client + WebRTC data channel setup.
  *
  * This module talks to the matchmaking server just long enough to find a
- * partner and negotiate a direct RTCDataChannel. Once `onChannelOpen`
- * fires, `send()` goes straight peer-to-peer — the WebSocket is only kept
- * open afterwards so we can hear about the partner leaving.
+ * partner and negotiate a direct RTCDataChannel — the instant that channel
+ * opens, the matchmaking socket is closed (see wireChannel). From that
+ * point on the server has no connection to either peer at all: not just
+ * gameplay data, but "is my partner still there" liveness too, is detected
+ * purely from WebRTC's own signals (the data channel's close event, or the
+ * peer connection reaching "failed").
  */
 
 export type RequestedRole = "medium" | "ghost" | "any";
@@ -66,6 +69,17 @@ export function connect(wsUrl: string, requestedRole: RequestedRole, cb: Session
   let remoteDescSet = false;
   let pendingCandidates: RTCIceCandidateInit[] = [];
   let remoteCandidates: ParsedCandidate[] = [];
+  // True once *we* closed the matchmaking socket on purpose — either
+  // because the data channel just opened and it's no longer needed, or
+  // because the whole session is being torn down (Session.close()).
+  // Guards the ws "close" listener against showing a spurious disconnect
+  // message for a close we ourselves triggered.
+  let intentionalWsClose = false;
+  // True once Session.close() ran locally — guards notifyPeerGone from
+  // firing off our *own* channel.close()/pc.close() call (e.g. after
+  // tapping GOODBYE) as if the peer had vanished.
+  let closedLocally = false;
+  let peerGoneNotified = false;
 
   ws.addEventListener("open", () => {
     cb.onStatus("Connected to matchmaking server. Looking for a partner...");
@@ -77,8 +91,17 @@ export function connect(wsUrl: string, requestedRole: RequestedRole, cb: Session
   });
 
   ws.addEventListener("close", () => {
+    if (intentionalWsClose) return;
     cb.onStatus("Disconnected from matchmaking server.");
   });
+
+  // Once the data channel is open there's no server connection left to
+  // notify onPeerLeft's caller through — this is the only path left.
+  function notifyPeerGone() {
+    if (peerGoneNotified || closedLocally) return;
+    peerGoneNotified = true;
+    cb.onPeerLeft();
+  }
 
   async function handleServerMessage(msg: any) {
     if (msg.type === "matched") {
@@ -95,8 +118,10 @@ export function connect(wsUrl: string, requestedRole: RequestedRole, cb: Session
     }
 
     if (msg.type === "peer-left") {
+      // Only reachable pre-connection — once the channel opens, our own
+      // socket is already closed and we can't receive this anymore.
       cb.onStatus("Your partner disconnected.");
-      cb.onPeerLeft();
+      notifyPeerGone();
       return;
     }
   }
@@ -122,33 +147,26 @@ export function connect(wsUrl: string, requestedRole: RequestedRole, cb: Session
         hasConnectedOnce = true;
         cb.onStatus("Connected directly to your partner — the server is no longer involved.");
       } else if (pc?.connectionState === "failed") {
-        // ICE gives up and reaches "failed" two different ways: it never
-        // managed to connect at all, or it *was* connected and couldn't
-        // recover after the peer disappeared (this is also the backup
-        // path for detecting a silent network drop — the matchmaking
-        // server's peer-left is the primary one, but it only sees a
-        // *clean* close; a peer that vanishes mid-connection with no
-        // close frame at all is caught here instead, since ICE runs its
-        // own periodic connectivity checks independent of the server).
-        // Worth wording those two cases differently rather than always
-        // implying the handshake itself never worked.
-        cb.onStatus(
-          hasConnectedOnce
-            ? "Lost the direct connection to your partner and couldn't reconnect. Refresh to find a new one."
-            : "Could not establish a direct connection. This can happen on restrictive networks " +
-                "(corporate/conference wifi, symmetric NAT) that block WebRTC's peer-to-peer handshake " +
-                "without a TURN relay server, which this demo intentionally doesn't run. Try a mobile " +
-                "hotspot instead.",
-        );
+        if (hasConnectedOnce) {
+          // We were connected and ICE couldn't recover — the matchmaking
+          // socket is long closed by this point (see wireChannel), so
+          // this is now the *only* way a silent, no-close-frame network
+          // drop gets noticed at all. notifyPeerGone carries the
+          // goodbye-aware messaging the same as a clean channel close.
+          notifyPeerGone();
+        } else {
+          cb.onStatus(
+            "Could not establish a direct connection. This can happen on restrictive networks " +
+              "(corporate/conference wifi, symmetric NAT) that block WebRTC's peer-to-peer handshake " +
+              "without a TURN relay server, which this demo intentionally doesn't run. Try a mobile " +
+              "hotspot instead.",
+          );
+        }
       }
       // "disconnected" is deliberately not surfaced here — it's often
-      // transient (ICE can flap back to "connected" on its own) and, more
-      // importantly, it has no way to know about a graceful GOODBYE. The
-      // server-mediated "peer-left" message is the authoritative signal
-      // for "your partner is actually gone" and is what carries the
-      // correct, goodbye-aware message — showing a generic one here too
-      // just races it and sometimes wins, flashing the wrong message
-      // first.
+      // transient (ICE can flap back to "connected" on its own). We wait
+      // for the firmer "failed" (or the data channel's own close event)
+      // before declaring the peer gone.
     };
 
     pc.oniceconnectionstatechange = () => {
@@ -183,7 +201,16 @@ export function connect(wsUrl: string, requestedRole: RequestedRole, cb: Session
   }
 
   function wireChannel(ch: RTCDataChannel) {
-    ch.onopen = () => cb.onChannelOpen();
+    ch.onopen = () => {
+      cb.onChannelOpen();
+      // The handshake is done and there's nothing left for the
+      // matchmaking server to do — closing this now is what makes "the
+      // server is out of the loop entirely" literally true, not just
+      // true for gameplay traffic.
+      intentionalWsClose = true;
+      ws.close();
+    };
+    ch.onclose = () => notifyPeerGone();
     ch.onmessage = (ev) => {
       try {
         cb.onMessage(JSON.parse(ev.data));
@@ -252,6 +279,8 @@ export function connect(wsUrl: string, requestedRole: RequestedRole, cb: Session
       }
     },
     close() {
+      closedLocally = true;
+      intentionalWsClose = true;
       channel?.close();
       pc?.close();
       ws.close();
