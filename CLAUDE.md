@@ -311,8 +311,13 @@ how to redeploy either one.
         GitHub Actions, and the Render blueprint signup/apply + copying its
         URL into the repo variable. Both done by the user; end-to-end round
         confirmed working from the live URLs.
-- [x] **Cost-at-scale estimates for the talk (2026-08-30) — done, with real
-      benchmark data, not estimated.** Published as an artifact:
+- [x] **Cost-at-scale estimates for the talk (2026-08-30)** — ⚠️ **SUPERSEDED
+      2026-09-16 by the re-benchmark below.** Its model (one socket per
+      player, held for the whole session) stopped being true when the
+      pure-P2P change landed, so its headline "$25/mo at 10,000 boards"
+      now overstates real usage by ~30×. Kept here for the method and the
+      reasoning, which are still sound; don't quote its numbers, and don't
+      put both tables in the same deck. Published as an artifact:
       [Scaling the Matchmaker](https://claude.ai/code/artifact/644c8f23-f040-40d7-9166-0d2b2af51e66).
       Headline: **free up to ~2,000 concurrent players (1,000 boards),
       ~$25/mo at 20,000 players (10,000 boards)** on Render.
@@ -517,6 +522,37 @@ how to redeploy either one.
         above, now re-verified against this change.
       - Shipped as the new default behavior (committed and deployed same
         session) so the live demo actually reflects it.
+- [x] **Cost re-benchmark after the architecture changes (2026-09-16)** —
+      published as an artifact:
+      [The Cost of Introductions](https://claude.ai/artifact/Fw34M1EMuqEvXiy3niTsSo).
+      Supersedes the August table (see above). Built because two changes
+      invalidated the old model: pure-P2P (matched players close their
+      sockets, so sustained sockets are queued/handshaking players only)
+      and the ping/pong keepalive (every connection now wakes on a 10s
+      ticker, so "0.000% CPU" needed re-checking).
+      - **The model changed, not just the numbers.** Cost no longer
+        scales with concurrent *players* — it scales with matchmaking
+        throughput. `live sockets = P × (time held ÷ session length)`;
+        with ~10s held (measured ~2s handshake + assumed ~8s queue wait)
+        against a 300s session, that's **P ÷ 30**.
+      - **Measured** (`scratchpad/bench_v2.mjs`, against the current
+        binary, clients answering pings so the keepalive doesn't reap
+        them mid-run): idle baseline **7.1 MB**; **29.4 KB per socket**,
+        steady at 29–33 KB across 1k/2k/4k/6k; CPU **2.5% of one core at
+        6,000 sockets** = 0.42% per 1,000, keepalive included.
+      - **Headline finding: memory stopped being the constraint.**
+        200,000 concurrent players ≈ 6,667 live sockets ≈ 198 MB
+        measured. The first thing you'd actually pay for is **signaling
+        egress** (~3 KB relayed per match — a 458-byte offer, an answer,
+        a few candidates), which crosses ~259 GB/mo at 20,000 players.
+      - **Honest caveats recorded in the artifact**: queue wait is
+        assumed, not measured, and is the softest input — but the
+        conclusion survives pessimism (at 20,000 players even a 2-minute
+        average wait is only ~237 MB). CPU is no longer literally zero.
+        Past ~1M boards the single in-memory `Hub` goroutine is a SPOF
+        regardless of box size, so the answer is sharding, not a bigger
+        instance. Hosting prices were costed in August and drift —
+        re-check before quoting dollars on stage.
 - [ ] Slide deck / talk outline itself.
 
 ## Open questions (need the user's input, don't just decide)
