@@ -154,6 +154,49 @@ how to redeploy either one.
     depends on the browser's own address-discovery mechanics working,
     and different browsers implement that differently.
 
+- **OPEN BUG: players get matched with corpses in the waiting queue**
+  (found by the user 2026-09-16 in a live phone↔desktop test, then
+  reproduced locally). Symptom as reported: "the medium side got the
+  board displayed almost immediately, with a 'disconnected' message
+  above, while the ghost side never arrived to the board at all…
+  the issue seemed to go away after a few retries."
+  - **Root cause**: `server/main.go`'s `readPump` blocks on
+    `conn.ReadMessage()` with **no read deadline and no ping/pong**, so
+    the server only learns a player is gone if their TCP connection
+    closes *cleanly*. A phone that locks its screen, drops off wifi, or
+    gets its socket reaped by carrier NAT leaves a half-open connection
+    that the server still counts as a live player sitting in
+    `h.waiting`. `handleJoin` then cheerfully pairs the next real player
+    with that corpse.
+  - **Reproduced** (`scratchpad/zombie_queue_test.mjs`) with a raw
+    socket that joins as ghost and then goes silent without closing:
+    the next real medium is matched instantly, is shown the board, and
+    sits in a room that can never connect. A second, *live* ghost who
+    joins afterwards is then **stranded in "Looking for a partner…"
+    forever**, because the only medium in the system is already locked
+    in a dead room — which is exactly the reported "ghost never arrived
+    at the board." A variant (`zombie_variant_test.mjs`) reproduces the
+    precise reported display: when the corpse's socket finally does
+    collapse, the medium — already on the board — gets `peer-left` and
+    shows "Your partner disconnected." above it. "Goes away after a few
+    retries" fits too: retries eventually drain the corpses and let two
+    live players meet.
+  - **This is NOT contradicted by the earlier "don't add anything to the
+    Go server, it's pure P2P" decision** (2026-09-14, and the user was
+    right about that one). That reasoning covered *matched* peers, where
+    WebRTC's own ICE checks make a server keepalive redundant. It does
+    not cover players *in the waiting queue*: there is no peer
+    connection yet, so nothing else in the system can notice they're
+    gone. The server is the only thing that can, and currently doesn't.
+  - **Fix not yet implemented — needs the user's call.** Options: (a)
+    gorilla's standard `SetReadDeadline` + ping/pong keepalive on the
+    server, which is the conventional fix and bounds how long a corpse
+    can sit in the queue; (b) cheaper client-side mitigation — have the
+    client treat "matched but no signaling traffic within N seconds" as
+    a failed match and rejoin the queue; (c) both. Note (a) only ever
+    runs pre-match, so it doesn't reintroduce a per-session server cost
+    or undercut the talk's thesis.
+
 ## Status
 
 - [x] Repo scaffolded (workspaces, server skeleton, client skeleton).
@@ -401,38 +444,50 @@ how to redeploy either one.
       can't double-fire. `peer-left` still exists but is now only
       reachable pre-connection (during matchmaking/signaling, before the
       socket closes).
-      - **Measured, not assumed (Playwright, two real peers)**: confirmed
-        the matchmaking WS actually closes ~167ms after the data channel
-        opens — well before any teardown — via Playwright's `websocket`
-        page event. Then measured how long an abrupt, no-goodbye medium
-        disconnect (tab closed with no cleanup) takes the ghost to
-        notice now that there's no server fast-path: **~15.9 seconds**,
-        driven by Chromium's default ICE consent/failure timeout. The
-        goodbye path, by contrast, got *faster* under this change
-        (~640ms, gated only by the planchette's `MOVE_MS`) since it no
-        longer waits on a server relay at all — it's detected straight
-        off the data channel's own close event.
-      - **Trade-off this makes real, not hypothetical**: a clean
-        disconnect (GOODBYE, tab closed normally) is still fast. A
-        genuinely silent network death (wifi drops, process killed) now
-        takes ~16s to surface on the ghost's side, versus being
-        near-instant when the server was relaying `peer-left`. Worth
-        deciding whether that's acceptable for the live demo before
-        relying on it — a corporate-wifi hiccup mid-demo would now read
-        as "still connected" for that whole window. Not addressed yet:
-        if it needs to be faster, the fix is tightening the demo-side ICE
-        timing (there's no `iceTransportPolicy`/consent-timeout knob
-        currently set), not resurrecting the server socket, which would
-        undo the point of this change.
+      - Confirmed the matchmaking WS actually closes ~167ms after the data
+        channel opens — well before any teardown — via Playwright's
+        `websocket` page event.
+      - **Disconnect-detection timing, corrected 2026-09-16.** An earlier
+        version of this entry (and the commit message for `5b26c6f`)
+        claimed an abrupt disconnect takes **~16 seconds** to detect.
+        **That number was a test artifact and is wrong for real use** —
+        the user caught it immediately, having seen the "it lingers"
+        message appear near-instantly in a live phone↔desktop test.
+        Re-measured, broken out by *how* the peer actually leaves:
+        - **Closing a tab / navigating away: ~350ms.** Chromium runs a
+          normal page unload, which tears the `RTCPeerConnection` down
+          gracefully, so the peer's data channel `onclose` fires straight
+          away. This is what a real user does, and it is *faster* than
+          the old server-relayed `peer-left` path. **This is the number
+          that matters for the demo.**
+        - **Playwright's `page.close()`: ~16.2s.** Reproducible, but it
+          kills the renderer without a graceful WebRTC teardown, so it
+          measures neither a real tab close nor a real network drop. The
+          original 16s figure came from here — a property of the test
+          harness, not the app.
+        - **Genuinely silent network death: unmeasured, still unknown.**
+          Playwright's `context.setOffline(true)` does *not* cut
+          WebRTC's UDP path — the ghost sat at `connectionState:
+          "connected"` with zero ICE transitions for a full 120s, i.e.
+          the connection really was still up. Nominally ICE consent
+          freshness (RFC 7675) should surface this in ~30s, but that is
+          spec-reading, **not something we have verified here**; properly
+          testing it needs a real firewall/UDP block, not browser
+          offline emulation. Don't quote a number for this case until
+          it's actually measured.
+        - GOODBYE path: ~640ms, gated only by the planchette's `MOVE_MS`
+          — faster than before, since it no longer waits on a server
+          relay.
+      - Lesson worth keeping: "measured, not estimated" only counts if
+        the simulation matches the real-world event. `page.close()` and
+        `setOffline()` both *looked* like valid stand-ins for "the peer
+        vanished" and neither was.
       - Regression-tested alongside: existing chat/tap/planchette-sync
         flow, and the GOODBYE-ends-session messaging (both directions),
         all still pass — see the browser-tested notes on those features
         above, now re-verified against this change.
       - Shipped as the new default behavior (committed and deployed same
-        session) so the live demo actually reflects it. The ~16s
-        abrupt-disconnect number above is the thing to weigh before
-        leaning on this for the live demo — flagging as a real open
-        question below, not a settled trade-off.
+        session) so the live demo actually reflects it.
 - [ ] Slide deck / talk outline itself.
 
 ## Open questions (need the user's input, don't just decide)
@@ -447,13 +502,16 @@ how to redeploy either one.
 4. **Room size**: bug-for-bug it's always exactly one medium + one ghost.
    Worth ever supporting spectators (read-only third connection)? Not
    started; flagging as a possible "if there's time" feature.
-5. **Pure-P2P abrupt-disconnect latency (2026-09-16)**: now that the
-   matchmaking socket closes as soon as the data channel opens (see
-   Status), a silent network drop (as opposed to a clean GOODBYE/tab
-   close) takes ICE's own timeout to surface — measured at ~16 seconds
-   in testing. Acceptable for the live demo as-is, or worth tuning (e.g.
-   a shorter custom watchdog on sustained `"disconnected"` before waiting
-   for the browser's own `"failed"`) before relying on it on stage?
+5. **Fixing the corpse-in-the-queue bug (2026-09-16)** — see the OPEN BUG
+   entry under "Known issues". Which fix: server-side ping/pong keepalive
+   (conventional, pre-match only so it doesn't touch the P2P story), a
+   client-side "matched but signaling went nowhere, rejoin" timeout, or
+   both? This one is a genuine broken-first-impression bug for anyone
+   trying the live link, so it probably wants fixing before the talk.
+   (The earlier version of this question, about a supposed ~16s
+   abrupt-disconnect latency, is withdrawn — that number was a test
+   artifact; a real tab close is ~350ms. See the corrected timing notes
+   in Status.)
 
 ## How to run locally (dev)
 
