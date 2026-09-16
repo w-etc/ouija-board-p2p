@@ -154,9 +154,9 @@ how to redeploy either one.
     depends on the browser's own address-discovery mechanics working,
     and different browsers implement that differently.
 
-- **OPEN BUG: players get matched with corpses in the waiting queue**
-  (found by the user 2026-09-16 in a live phone↔desktop test, then
-  reproduced locally). Symptom as reported: "the medium side got the
+- **FIXED (2026-09-16): players got matched with corpses in the waiting
+  queue.** Found by the user in a live phone↔desktop test, then
+  reproduced and fixed the same session. Symptom as reported: "the medium side got the
   board displayed almost immediately, with a 'disconnected' message
   above, while the ghost side never arrived to the board at all…
   the issue seemed to go away after a few retries."
@@ -188,14 +188,43 @@ how to redeploy either one.
     not cover players *in the waiting queue*: there is no peer
     connection yet, so nothing else in the system can notice they're
     gone. The server is the only thing that can, and currently doesn't.
-  - **Fix not yet implemented — needs the user's call.** Options: (a)
-    gorilla's standard `SetReadDeadline` + ping/pong keepalive on the
-    server, which is the conventional fix and bounds how long a corpse
-    can sit in the queue; (b) cheaper client-side mitigation — have the
-    client treat "matched but no signaling traffic within N seconds" as
-    a failed match and rejoin the queue; (c) both. Note (a) only ever
-    runs pre-match, so it doesn't reintroduce a per-session server cost
-    or undercut the talk's thesis.
+  - **Fix shipped — user chose option (a) only**: gorilla's standard
+    `SetReadDeadline` + ping/pong keepalive in `server/main.go`.
+    `writePump` now pings every `pingPeriod` (10s) off a ticker instead
+    of just ranging over `player.send`; `readPump` sets a `pongWait`
+    (30s) read deadline that every pong pushes back out. Browsers answer
+    pings automatically (RFC 6455, no JS involved), so nothing changed
+    client-side. 30s/10s tolerates two missed pings — forgiving enough
+    for flaky mobile, tight enough that corpses don't linger. A
+    client-side "matched but signaling went nowhere, rejoin" timeout was
+    considered and deliberately **not** added; keeping the fix purely
+    server-side was the user's call.
+  - **Verified** (`scratchpad/zombie_fix_test.mjs`,
+    `keepalive_falsepositive_test.mjs`):
+    - A medium paired with a *fresh* corpse is now told within ~27.5s
+      ("Your partner disconnected. Refresh to find a new one.") instead
+      of hanging forever. The keepalive bounds the window, it can't see
+      the future — so this case still fails, it just fails *visibly and
+      quickly* now.
+    - Once a corpse is reaped, the queue is clean: a new medium is no
+      longer paired with it, waits normally, and a real ghost then
+      matches and connects P2P. The "second live player stranded
+      forever" symptom is gone.
+    - **The risk this fix introduces, checked explicitly**: a real
+      browser left queued for 75s (2.5× `pongWait`) is *not* kicked, and
+      still matches and connects normally afterwards. The whole fix
+      rests on browsers auto-ponging, so that got tested rather than
+      assumed.
+  - **Cost note for the talk**: this doesn't dent the "server does
+    almost nothing" story, and arguably strengthens it. Because matched
+    players now close their sockets the instant the data channel opens
+    (see pure-P2P entry in Status), the only live connections the server
+    holds are players *queued or mid-handshake* — seconds each. So the
+    ping ticker's cost scales with queue depth, not with concurrent
+    sessions. Worth noting the existing cost-at-scale benchmark
+    (measured with matched players holding sockets open) now *overstates*
+    real usage; it's conservative in our favor, not stale in a way that
+    misleads.
 
 ## Status
 
@@ -502,16 +531,11 @@ how to redeploy either one.
 4. **Room size**: bug-for-bug it's always exactly one medium + one ghost.
    Worth ever supporting spectators (read-only third connection)? Not
    started; flagging as a possible "if there's time" feature.
-5. **Fixing the corpse-in-the-queue bug (2026-09-16)** — see the OPEN BUG
-   entry under "Known issues". Which fix: server-side ping/pong keepalive
-   (conventional, pre-match only so it doesn't touch the P2P story), a
-   client-side "matched but signaling went nowhere, rejoin" timeout, or
-   both? This one is a genuine broken-first-impression bug for anyone
-   trying the live link, so it probably wants fixing before the talk.
-   (The earlier version of this question, about a supposed ~16s
-   abrupt-disconnect latency, is withdrawn — that number was a test
-   artifact; a real tab close is ~350ms. See the corrected timing notes
-   in Status.)
+5. ~~Corpse-in-the-queue bug~~ — resolved 2026-09-16: user chose the
+   server-side ping/pong keepalive only, now shipped. See the fixed
+   entry under "Known issues". (An earlier version of this question,
+   about a supposed ~16s abrupt-disconnect latency, was withdrawn — that
+   number was a test artifact; a real tab close is ~350ms.)
 
 ## How to run locally (dev)
 

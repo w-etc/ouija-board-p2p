@@ -15,8 +15,33 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/gorilla/websocket"
+)
+
+// Keepalive timings.
+//
+// Without these, a connection only ever dies if it closes *cleanly*: a
+// phone that locks its screen or drops off wifi leaves a half-open socket
+// that this server keeps counting as a live player in `waiting`, and
+// handleJoin will happily pair the next real player with that corpse.
+//
+// Note this only ever applies to players who are still talking to us —
+// i.e. queued or mid-handshake. Once a pair's RTCDataChannel opens, the
+// clients close these sockets themselves and the P2P connection's own ICE
+// checks take over liveness, so this adds no per-session cost and doesn't
+// walk back the "no keepalive for matched peers" decision.
+//
+// pongWait is how long a silent connection is tolerated; pingPeriod must
+// be meaningfully shorter so a peer gets a few chances to answer before
+// being reaped. 30s/10s tolerates two missed pings, which is forgiving
+// enough for a flaky mobile network without leaving corpses in the queue
+// for long.
+const (
+	writeWait  = 10 * time.Second
+	pongWait   = 30 * time.Second
+	pingPeriod = 10 * time.Second
 )
 
 type Role string
@@ -259,10 +284,31 @@ func serveWS(hub *Hub) http.HandlerFunc {
 }
 
 func writePump(conn *websocket.Conn, player *Player) {
-	defer conn.Close()
-	for msg := range player.send {
-		if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
-			return
+	ticker := time.NewTicker(pingPeriod)
+	defer func() {
+		ticker.Stop()
+		conn.Close()
+	}()
+
+	for {
+		select {
+		case msg, ok := <-player.send:
+			if !ok {
+				// readPump closed the channel: this player is finished.
+				conn.SetWriteDeadline(time.Now().Add(writeWait))
+				conn.WriteMessage(websocket.CloseMessage, nil)
+				return
+			}
+			conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
+				return
+			}
+
+		case <-ticker.C:
+			conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
 		}
 	}
 }
@@ -273,6 +319,16 @@ func readPump(hub *Hub, conn *websocket.Conn, player *Player) {
 		close(player.send)
 		conn.Close()
 	}()
+
+	// A peer that goes silent (screen lock, wifi drop, carrier NAT reaping
+	// the socket) never closes cleanly, so without a deadline this loop
+	// would block forever and leave the player in the matchmaking queue.
+	// Every pong the peer sends back — browsers answer pings automatically
+	// — pushes the deadline out again.
+	conn.SetReadDeadline(time.Now().Add(pongWait))
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(pongWait))
+	})
 
 	for {
 		_, raw, err := conn.ReadMessage()
